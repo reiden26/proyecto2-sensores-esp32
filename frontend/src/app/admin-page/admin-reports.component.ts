@@ -547,12 +547,13 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
           this.activeSensors = data.sensores_activos;
           this.inactiveSensors = data.sensores_inactivos;
           this.activeAlerts = data.alertas_activas;
-          this.cdr.detectChanges();
+          // NO forzar detectChanges aquí para evitar re-renderizar gráficos
         },
         error: () => {}
       });
       this.cargarAlertasPorRango(hdrs);
       this.cargarAlertasPersonalizadasPorRango(hdrs);
+      // NO recargar series de gráficos en el polling para evitar que desaparezcan
     });
   }
 
@@ -1101,7 +1102,7 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
 
   getChartPointsByKey(key: string): string {
     const data = this.getSafeDataByKey(key);
-    if (data.length === 0) return '';
+    if (!data || data.length === 0) return '';
     return data.map((point, index) => {
       const x = this.getXPosition(index);
       const y = this.getYPosition(point.value, data);
@@ -1264,14 +1265,24 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
       return serie;
     };
 
-    this.pm25Data = construirSerie(this.rawLecturas.mq135, stepHours);
-    this.airQualityData = construirSerie(this.rawLecturas.mq7, stepHours);
-    this.methaneData = construirSerie(this.rawLecturas.mq4, stepHours);
+    // Preservar datos existentes si hay datos nuevos, sino mantener los actuales
+    const newPm25Data = construirSerie(this.rawLecturas.mq135, stepHours);
+    const newAirQualityData = construirSerie(this.rawLecturas.mq7, stepHours);
+    const newMethaneData = construirSerie(this.rawLecturas.mq4, stepHours);
 
-    // Guardar copias
-    this.pm25DataOriginal = [...this.pm25Data];
-    this.airQualityDataOriginal = [...this.airQualityData];
-    this.methaneDataOriginal = [...this.methaneData];
+    // Solo actualizar si hay datos nuevos, sino mantener los existentes
+    if (newPm25Data.length > 0) {
+      this.pm25Data = newPm25Data;
+      this.pm25DataOriginal = [...this.pm25Data];
+    }
+    if (newAirQualityData.length > 0) {
+      this.airQualityData = newAirQualityData;
+      this.airQualityDataOriginal = [...this.airQualityData];
+    }
+    if (newMethaneData.length > 0) {
+      this.methaneData = newMethaneData;
+      this.methaneDataOriginal = [...this.methaneData];
+    }
 
     // Actualizar títulos
     const rangoTxt = this.getTituloRango();
@@ -1281,9 +1292,13 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
       subtitle: `${d.key === 'mq135' ? 'Calidad del Aire' : d.key === 'mq7' ? 'Monóxido de Carbono' : 'Gas Metano'} - ${rangoTxt}`
     }));
 
-    // Reaplicar filtro de sensor y forzar CD
-    this.onChangeSensor();
-    this.cdr.detectChanges();
+    // Reaplicar filtro de sensor solo si hay un sensor seleccionado
+    // No llamar onChangeSensor aquí para evitar que se vacíen los datos
+    // El filtro se aplicará automáticamente cuando el usuario seleccione un sensor
+    // Usar setTimeout para evitar re-renderizado inmediato que puede causar desaparición
+    setTimeout(() => {
+      this.cdr.detectChanges();
+    }, 0);
   }
 
   // ---------- Helper para fechas ----------
@@ -1682,20 +1697,23 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
     let data: any[];
     switch (sensorType) {
       case 'pm25':
-        data = this.pm25Data;
+        data = this.pm25Data || [];
         break;
       case 'air':
-        data = this.airQualityData;
+        data = this.airQualityData || [];
         break;
       case 'methane':
-        data = this.methaneData;
+        data = this.methaneData || [];
         break;
       case 'co':
-        data = this.coData;
+        data = this.coData || [];
         break;
       default:
-        data = this.pm25Data;
+        data = this.pm25Data || [];
     }
+    
+    // Si no hay datos, retornar posición media
+    if (!data || data.length === 0) return 150;
     
     const min = Math.min(...data.map(d => d.value));
     const max = Math.max(...data.map(d => d.value));
@@ -1708,20 +1726,23 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
     let data: any[];
     switch (sensorType) {
       case 'pm25':
-        data = this.pm25Data;
+        data = this.pm25Data || [];
         break;
       case 'air':
-        data = this.airQualityData;
+        data = this.airQualityData || [];
         break;
       case 'methane':
-        data = this.methaneData;
+        data = this.methaneData || [];
         break;
       case 'co':
-        data = this.coData;
+        data = this.coData || [];
         break;
       default:
-        data = this.pm25Data;
+        data = this.pm25Data || [];
     }
+    
+    // Si no hay datos, retornar string vacío para evitar errores en SVG
+    if (!data || data.length === 0) return '';
     
     return data.map((point, index) => {
       const x = this.getTemporalXPosition(index);
