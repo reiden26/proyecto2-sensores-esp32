@@ -145,12 +145,16 @@ export class AdminDataService {
    * Determina el estado basado en el valor y sensor
    */
   private determinarEstado(valor: number, sensorId: string): 'Bueno' | 'Advertencia' | 'Malo' {
+    // Umbrales ajustados a valores realistas según estándares de calidad del aire
     switch (sensorId) {
       case 'mq135':
-        return valor < 400 ? 'Bueno' : (valor < 1000 ? 'Advertencia' : 'Malo');
+        // Calidad del aire general (NO es CO₂ específico): Bueno < 20, Advertencia 20-49, Malo >= 50
+        return valor < 20 ? 'Bueno' : (valor < 50 ? 'Advertencia' : 'Malo');
       case 'mq4':
-        return valor < 1000 ? 'Bueno' : (valor < 5000 ? 'Advertencia' : 'Malo');
+        // Metano: Bueno < 10, Advertencia 10-49, Malo >= 50
+        return valor < 10 ? 'Bueno' : (valor < 50 ? 'Advertencia' : 'Malo');
       case 'mq7':
+        // CO: Bueno < 9, Advertencia 9-34, Malo >= 35
         return valor < 9 ? 'Bueno' : (valor < 35 ? 'Advertencia' : 'Malo');
       default:
         return 'Bueno';

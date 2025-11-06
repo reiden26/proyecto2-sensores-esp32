@@ -175,14 +175,16 @@ class ConfiguracionSistema(Base):
     actualizado_en = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
 
     # Umbrales globales de severidad para sensores (configurables por admin)
-    mq135_warning_threshold = Column(Float, nullable=False, server_default="400")
-    mq135_bad_threshold = Column(Float, nullable=False, server_default="1000")
+    # Ajustados a valores realistas según estándares de calidad del aire
+    # NOTA: MQ-135 mide calidad del aire general (NH3, NOx, alcohol, benceno, humo), NO CO₂ específico
+    mq135_warning_threshold = Column(Float, nullable=False, server_default="20")   # Calidad aire: advertencia desde 20 ppm
+    mq135_bad_threshold = Column(Float, nullable=False, server_default="50")      # Calidad aire: malo desde 50 ppm
 
-    mq4_warning_threshold = Column(Float, nullable=False, server_default="1000")
-    mq4_bad_threshold = Column(Float, nullable=False, server_default="5000")
+    mq4_warning_threshold = Column(Float, nullable=False, server_default="10")      # Metano: advertencia desde 10 ppm
+    mq4_bad_threshold = Column(Float, nullable=False, server_default="50")          # Metano: malo desde 50 ppm (riesgo)
 
-    mq7_warning_threshold = Column(Float, nullable=False, server_default="9")
-    mq7_bad_threshold = Column(Float, nullable=False, server_default="35")
+    mq7_warning_threshold = Column(Float, nullable=False, server_default="9")       # CO: advertencia desde 9 ppm
+    mq7_bad_threshold = Column(Float, nullable=False, server_default="35")         # CO: malo desde 35 ppm
 
     # Triggers personalizados por sensor (valor y tipo de comparación)
     mq135_trigger_valor = Column(Float, nullable=True)

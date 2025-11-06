@@ -11,18 +11,16 @@ import models, schemas, auth
 
 from fastapi.middleware.cors import CORSMiddleware
 
-# Config avanzada
+
 SENSOR_CONNECT_GRACE_SECONDS = int(os.getenv("SENSOR_CONNECT_GRACE_SECONDS", "15"))
 
 load_dotenv()
 
 app = FastAPI(title="API Sensores Proyecto 2")
 
-# ✅ Crea las tablas automáticamente en la BD (Railway)
 models.Base.metadata.create_all(bind=engine)
 
-# Configuración CORS desde variables de entorno
-# Para desarrollo, permitir todos los orígenes de localhost
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -31,9 +29,9 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:4200",
         "http://127.0.0.1:5173",
-        # Permitir conexiones desde emuladores y dispositivos móviles
+        
         "http://10.0.2.2:8000",  # Android emulator
-        "http://localhost:*",    # Cualquier puerto localhost
+        "http://localhost:*",    
         "*",  
     ],
     allow_credentials=True,
@@ -48,14 +46,15 @@ app.add_middleware(
 # ----------- UTILIDADES DE UMBRALES Y SEVERIDAD -----------
 def _get_thresholds(db: Session) -> dict:
     """Obtiene umbrales globales configurados; si no existen, usa defaults."""
+    # Valores por defecto ajustados a estándares realistas de calidad del aire
     cfg = db.query(models.ConfiguracionSistema).first()
     return {
-        "mq135_warning": float(getattr(cfg, "mq135_warning_threshold", 400) or 400),
-        "mq135_bad": float(getattr(cfg, "mq135_bad_threshold", 1000) or 1000),
-        "mq4_warning": float(getattr(cfg, "mq4_warning_threshold", 1000) or 1000),
-        "mq4_bad": float(getattr(cfg, "mq4_bad_threshold", 5000) or 5000),
-        "mq7_warning": float(getattr(cfg, "mq7_warning_threshold", 9) or 9),
-        "mq7_bad": float(getattr(cfg, "mq7_bad_threshold", 35) or 35),
+        "mq135_warning": float(getattr(cfg, "mq135_warning_threshold", 20) or 20),     # Calidad aire: advertencia desde 20
+        "mq135_bad": float(getattr(cfg, "mq135_bad_threshold", 50) or 50),           # Calidad aire: malo desde 50
+        "mq4_warning": float(getattr(cfg, "mq4_warning_threshold", 10) or 10),        # Metano: advertencia desde 10
+        "mq4_bad": float(getattr(cfg, "mq4_bad_threshold", 50) or 50),                 # Metano: malo desde 50
+        "mq7_warning": float(getattr(cfg, "mq7_warning_threshold", 9) or 9),         # CO: advertencia desde 9
+        "mq7_bad": float(getattr(cfg, "mq7_bad_threshold", 35) or 35),                 # CO: malo desde 35
         # volumen
         "mq135_win_h": int(getattr(cfg, "mq135_min_count_window_hours", 1) or 1),
         "mq135_min_count": int(getattr(cfg, "mq135_min_count_threshold", 1) or 1),
@@ -66,7 +65,7 @@ def _get_thresholds(db: Session) -> dict:
     }
 
 def calcular_severidad_dinamica(sensor_codigo: str, valor: float, db: Session) -> str:
-    """Calcula severidad (bueno/advertencia/malo) usando umbrales configurables."""
+    
     try:
         v = float(valor)
     except Exception:
