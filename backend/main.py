@@ -50,8 +50,8 @@ def _get_thresholds(db: Session) -> dict:
     # Valores por defecto ajustados a estándares realistas de calidad del aire
     cfg = db.query(models.ConfiguracionSistema).first()
     return {
-        "mq135_warning": float(getattr(cfg, "mq135_warning_threshold", 20) or 20),     # Calidad aire: advertencia desde 20
-        "mq135_bad": float(getattr(cfg, "mq135_bad_threshold", 50) or 50),           # Calidad aire: malo desde 50
+        "mq135_warning": float(getattr(cfg, "mq135_warning_threshold", 250) or 250),     # Calidad aire: advertencia desde 250
+        "mq135_bad": float(getattr(cfg, "mq135_bad_threshold", 400) or 400),           # Calidad aire: malo desde 400
         "mq4_warning": float(getattr(cfg, "mq4_warning_threshold", 10) or 10),        # Metano: advertencia desde 10
         "mq4_bad": float(getattr(cfg, "mq4_bad_threshold", 50) or 50),                 # Metano: malo desde 50
         "mq7_warning": float(getattr(cfg, "mq7_warning_threshold", 9) or 9),         # CO: advertencia desde 9
@@ -769,16 +769,8 @@ def actualizar_lectura(
         except Exception:
             raise HTTPException(status_code=400, detail="Fecha de lectura inválida")
 
-    # Recalcular estado según umbrales del Arduino
-    # mq135: bueno<400, advertencia<1000, sino malo
-    # mq4:   bueno<1000, advertencia<5000, sino malo
-    # mq7:   bueno<9, advertencia<35, sino malo
-    if sensor_codigo == "mq135":
-        estado_str = "bueno" if nuevo_valor < 400 else ("advertencia" if nuevo_valor < 1000 else "malo")
-    elif sensor_codigo == "mq4":
-        estado_str = "bueno" if nuevo_valor < 1000 else ("advertencia" if nuevo_valor < 5000 else "malo")
-    else:  # mq7
-        estado_str = "bueno" if nuevo_valor < 9 else ("advertencia" if nuevo_valor < 35 else "malo")
+    # Recalcular estado usando umbrales dinámicos configurables
+    estado_str = calcular_severidad_dinamica(sensor_codigo, nuevo_valor, db)
 
     # Aplicar cambios
     lectura.valor = nuevo_valor

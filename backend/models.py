@@ -177,8 +177,8 @@ class ConfiguracionSistema(Base):
     # Umbrales globales de severidad para sensores (configurables por admin)
     # Ajustados a valores realistas según estándares de calidad del aire
     # NOTA: MQ-135 mide calidad del aire general (NH3, NOx, alcohol, benceno, humo), NO CO₂ específico
-    mq135_warning_threshold = Column(Float, nullable=False, server_default="20")   # Calidad aire: advertencia desde 20 ppm
-    mq135_bad_threshold = Column(Float, nullable=False, server_default="50")      # Calidad aire: malo desde 50 ppm
+    mq135_warning_threshold = Column(Float, nullable=False, server_default="250")   # Calidad aire: advertencia desde 250 ppm
+    mq135_bad_threshold = Column(Float, nullable=False, server_default="400")      # Calidad aire: malo desde 400 ppm
 
     mq4_warning_threshold = Column(Float, nullable=False, server_default="10")      # Metano: advertencia desde 10 ppm
     mq4_bad_threshold = Column(Float, nullable=False, server_default="50")          # Metano: malo desde 50 ppm (riesgo)
