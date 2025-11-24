@@ -542,7 +542,9 @@ export class UserSensorsComponent implements OnInit, OnDestroy {
     if (sensorMQ135 && lecturas.mq135 && lecturas.mq135.length > 0) {
       const ultimaLectura = lecturas.mq135[0];
       sensorMQ135.value = ultimaLectura.valor;
-      sensorMQ135.status = ultimaLectura.estado;
+      // Asegurar que el estado viene como string y en minúsculas
+      sensorMQ135.status = String(ultimaLectura.estado || '').toLowerCase();
+      console.log('MQ135 actualizado:', { valor: ultimaLectura.valor, estado: sensorMQ135.status });
     } else if (sensorMQ135 && sensorMQ135.active && sensorMQ135.status !== 'disconnected') {
       sensorMQ135.value = null;
       sensorMQ135.status = 'inactive';
@@ -624,9 +626,10 @@ export class UserSensorsComponent implements OnInit, OnDestroy {
     
     // Usar el estado que viene del backend (ya calculado con umbrales dinámicos)
     // El backend envía: "bueno", "advertencia", "malo"
-    if (sensor.status === 'bueno') return 'normal';
-    if (sensor.status === 'advertencia') return 'warning';
-    if (sensor.status === 'malo') return 'danger';
+    const estadoNormalizado = String(sensor.status || '').toLowerCase();
+    if (estadoNormalizado === 'bueno') return 'normal';
+    if (estadoNormalizado === 'advertencia') return 'warning';
+    if (estadoNormalizado === 'malo') return 'danger';
     
     // Fallback: si el estado no coincide, calcular basándose en el valor
     // (solo como respaldo, debería usar siempre el estado del backend)
