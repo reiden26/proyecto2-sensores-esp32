@@ -622,25 +622,27 @@ export class UserSensorsComponent implements OnInit, OnDestroy {
     
     if (!sensor.value) return 'unknown';
     
-    // Lógica de estado basada en estándares de calidad del aire
-    // Umbrales ajustados a valores realistas según estándares internacionales
+    // Usar el estado que viene del backend (ya calculado con umbrales dinámicos)
+    // El backend envía: "bueno", "advertencia", "malo"
+    if (sensor.status === 'bueno') return 'normal';
+    if (sensor.status === 'advertencia') return 'warning';
+    if (sensor.status === 'malo') return 'danger';
+    
+    // Fallback: si el estado no coincide, calcular basándose en el valor
+    // (solo como respaldo, debería usar siempre el estado del backend)
     switch (sensor.id) {
-      case 'mq135': // Calidad del aire (múltiples gases: NH3, NOx, alcohol, benceno, humo)
-        // NOTA: MQ-135 NO mide CO₂ con precisión, mide calidad del aire general
-        // Aire normal: ~5 ppm, Advertencia: > 20 ppm, Peligro: > 50 ppm
-        if (sensor.value! >= 50) return 'danger';         // Malo: > 50 ppm (aire muy contaminado)
-        if (sensor.value! >= 20) return 'warning';        // Advertencia: 20-49 ppm (aire moderadamente contaminado)
-        return 'normal';                                  // Bueno: < 20 ppm (aire limpio)
+      case 'mq135': // Calidad del aire
+        if (sensor.value! >= 400) return 'danger';        // Malo: ≥ 400 ppm
+        if (sensor.value! >= 250) return 'warning';       // Advertencia: 250-399 ppm
+        return 'normal';                                   // Bueno: < 250 ppm
       case 'mq4': // Metano / gas natural
-        // Aire normal: ~1.8 ppm, Advertencia: > 10 ppm, Peligro: > 50 ppm (riesgo explosivo)
-        if (sensor.value! >= 50) return 'danger';        // Malo: > 50 ppm (riesgo)
-        if (sensor.value! >= 10) return 'warning';       // Advertencia: 10-49 ppm
-        return 'normal';                                  // Bueno: < 10 ppm
+        if (sensor.value! >= 50) return 'danger';         // Malo: > 50 ppm (riesgo)
+        if (sensor.value! >= 10) return 'warning';        // Advertencia: 10-49 ppm
+        return 'normal';                                   // Bueno: < 10 ppm
       case 'mq7': // Monóxido de carbono
-        // Aire normal: < 1 ppm, OSHA límite: 50 ppm (8h), Peligro: > 35 ppm
         if (sensor.value! >= 35) return 'danger';         // Malo: > 35 ppm
-        if (sensor.value! >= 9) return 'warning';       // Advertencia: 9-34 ppm
-        return 'normal';                                  // Bueno: < 9 ppm
+        if (sensor.value! >= 9) return 'warning';         // Advertencia: 9-34 ppm
+        return 'normal';                                   // Bueno: < 9 ppm
       default:
         return 'normal';
     }

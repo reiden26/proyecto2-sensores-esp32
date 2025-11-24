@@ -663,24 +663,27 @@ def crear_lectura_device(
             continue
 
         # Guardar lectura en la tabla correspondiente para cada usuario activo con permiso
+        # Recalcular estado usando umbrales dinámicos del backend para asegurar consistencia
+        estado_calculado = calcular_severidad_dinamica(lectura.sensor_codigo, float(lectura.valor), db)
+        
         for sensor_activo in usuarios_con_permiso:
             if lectura.sensor_codigo == 'mq135':
                 nueva = models.LecturaMQ135(
                     usuario_id=sensor_activo.usuario_id,
                     valor=float(lectura.valor),
-                    estado=models.EstadoLecturaEnum(lectura.estado.value)
+                    estado=models.EstadoLecturaEnum(estado_calculado)
                 )
             elif lectura.sensor_codigo == 'mq4':
                 nueva = models.LecturaMQ4(
                     usuario_id=sensor_activo.usuario_id,
                     valor=float(lectura.valor),
-                    estado=models.EstadoLecturaEnum(lectura.estado.value)
+                    estado=models.EstadoLecturaEnum(estado_calculado)
                 )
             elif lectura.sensor_codigo == 'mq7':
                 nueva = models.LecturaMQ7(
                     usuario_id=sensor_activo.usuario_id,
                     valor=float(lectura.valor),
-                    estado=models.EstadoLecturaEnum(lectura.estado.value)
+                    estado=models.EstadoLecturaEnum(estado_calculado)
                 )
             
             db.add(nueva)
@@ -694,7 +697,7 @@ def crear_lectura_device(
                 sensor_activo.usuario_id, 
                 lectura.sensor_codigo, 
                 float(lectura.valor), 
-                lectura.estado.value
+                estado_calculado
             )
 
             # Evaluar y persistir alerta personalizada (si aplica)
