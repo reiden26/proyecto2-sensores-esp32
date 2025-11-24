@@ -1,6 +1,6 @@
 class ApiConstants {
   // Base URL - Cambia esta URL por la de tu backend
-  static const String baseUrl = 'http://localhost:8000';
+  static const String baseUrl = 'https://proyecto2-sensores-esp32.onrender.com';
   
   // Endpoints de autenticación
   static const String loginEndpoint = '/login';

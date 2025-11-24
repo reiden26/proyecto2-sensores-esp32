@@ -17,7 +17,7 @@ const char* ssid = "FAMILIA_REID";
 const char* password = "granfamilia";
 
 // Valor por defecto del servidor (ACTUALIZADO PARA PRODUCCIÓN)
-const char* serverURL_default = "https://proyecto2-sensores-production.up.railway.app/lecturas/device";
+const char* serverURL_default = "https://proyecto2-sensores-esp32.onrender.com/lecturas/device";
 const char* API_KEY = "esp32_api_key_12345";  // API key de producción desde .env
 
 // Variables de calibración (Ro) - USANDO VALORES DEL CÓDIGO ANTERIOR QUE FUNCIONABA

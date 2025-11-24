@@ -25,6 +25,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://proyecto2-sensores-esp32.vercel.app",
+        "https://proyecto2-sensores-esp32.onrender.com",
         "http://localhost:4200",
         "http://localhost:5173",
         "http://127.0.0.1:4200",
