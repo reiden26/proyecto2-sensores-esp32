@@ -200,7 +200,6 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
   private filtroDesde?: Date;
   private filtroHasta?: Date;
   
-  // Nuevo: Selector de fechas personalizado
   customDateRange = false;
   customDateFrom?: Date;
   customDateTo?: Date;
@@ -532,28 +531,61 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
       error: () => { this.isLoadingNotifs = false; }
     });
 
-    // Polling periódico para refrescar dashboard y alertas sin F5
+    this.setupPollingWithoutCharts();
+  }
+
+  private setupPollingWithoutCharts(): void {
     if (this.pollingReportsSubscription) {
       this.pollingReportsSubscription.unsubscribe();
-      this.pollingReportsSubscription = null;
     }
+    
     this.pollingReportsSubscription = interval(5000).subscribe(() => {
-      const t = localStorage.getItem('token');
-      if (!t) return;
-      const hdrs = { 'Authorization': `Bearer ${t}` };
-      this.http.get<any>(`${environment.apiBaseUrl}/reportes/dashboard`, { headers: hdrs }).subscribe({
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      
+      const headers = { 'Authorization': `Bearer ${token}` };
+      
+      // Solo actualizar métricas del dashboard
+      this.http.get<any>(`${environment.apiBaseUrl}/reportes/dashboard`, { headers }).subscribe({
         next: (data) => {
           this.totalSensors = data.total_sensores;
           this.activeSensors = data.sensores_activos;
           this.inactiveSensors = data.sensores_inactivos;
           this.activeAlerts = data.alertas_activas;
-          // NO forzar detectChanges aquí para evitar re-renderizar gráficos
+          // NO forzar detectChanges
         },
         error: () => {}
       });
-      this.cargarAlertasPorRango(hdrs);
-      this.cargarAlertasPersonalizadasPorRango(hdrs);
-      // NO recargar series de gráficos en el polling para evitar que desaparezcan
+      
+      // Actualizar alertas SIN recalcular series y SIN mostrar loading
+      this.cargarAlertasSinRecalcular(headers);
+      this.cargarAlertasPersonalizadasSinLoading(headers);
+    });
+  }
+
+  private cargarAlertasSinRecalcular(headers: any): void {
+    const base = `${environment.apiBaseUrl}/reportes/alertas`;
+    let url = base;
+    
+    if (this.customDateRange && this.customDateFrom && this.customDateTo) {
+      const diffTime = Math.abs(this.customDateTo.getTime() - this.customDateFrom.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      url = `${base}?rango=dias&dias=${diffDays}`;
+    } else {
+      let rango = 'today';
+      if (this.selectedDateRange === 'week') rango = 'week';
+      else if (this.selectedDateRange === 'month') rango = 'month';
+      url = `${base}?rango=${rango}`;
+    }
+    
+    this.http.get<any>(url, { headers }).subscribe({
+      next: (data) => {
+        this.alertasData = data?.alertas || [];
+        this.aplicarFiltrosAlertas();
+        // NO recalcular series aquí
+        // NO forzar detectChanges - esto causa que los gráficos se vacíen
+      },
+      error: () => {}
     });
   }
 
@@ -616,17 +648,74 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
   refreshData(): void { this.loadAllData();   }
 
   private cargarDatosTemporales(headers: any): void {
-    // Cargar datos para hoy, semana y mes
     const scopes = ['today', 'week', 'month'];
+    
     scopes.forEach(scope => {
       this.http.get<any>(`${environment.apiBaseUrl}/reportes/analitica?scope=${scope}`, { headers }).subscribe({
         next: (data) => {
-          if (scope === 'today') this.temporalData.hoy = data?.totales?.total || 0;
-          else if (scope === 'week') this.temporalData.semana = data?.totales?.total || 0;
-          else if (scope === 'month') this.temporalData.mes = data?.totales?.total || 0;
+          console.log(`[DEBUG Frontend] Analítica ${scope}:`, data);
+          
+          let total = 0;
+          
+          // Intentar múltiples formas de obtener el total
+          if (data?.total !== undefined && data.total !== null) {
+            total = Number(data.total);
+          } else if (data?.totales?.total !== undefined && data.totales.total !== null) {
+            total = Number(data.totales.total);
+          } else if (data?.totales) {
+            // Sumar individuales como fallback
+            total = (Number(data.totales.mq135) || 0) + 
+                    (Number(data.totales.mq7) || 0) + 
+                    (Number(data.totales.mq4) || 0);
+          }
+          
+          // Validar
+          if (!Number.isFinite(total)) {
+            total = 0;
+          }
+          
+          console.log(`[DEBUG Frontend] ${scope} - Total calculado:`, total);
+          
+          // Actualizar
+          if (scope === 'today') this.temporalData.hoy = total;
+          else if (scope === 'week') this.temporalData.semana = total;
+          else if (scope === 'month') this.temporalData.mes = total;
+          
+          // IMPORTANTE: Forzar detección de cambios
+          this.cdr.detectChanges();
         },
-        error: () => {}
+        error: (err) => {
+          console.error(`[DEBUG Frontend] Error ${scope}:`, err);
+          if (scope === 'today') this.temporalData.hoy = 0;
+          else if (scope === 'week') this.temporalData.semana = 0;
+          else if (scope === 'month') this.temporalData.mes = 0;
+        }
       });
+    });
+  }
+
+  private cargarAlertasPersonalizadasSinLoading(headers: any): void {
+    const base = `${environment.apiBaseUrl}/reportes/alertas-personalizadas`;
+    
+    let url = base;
+    if (this.customDateRange && this.customDateFrom && this.customDateTo) {
+      const diffTime = Math.abs(this.customDateTo.getTime() - this.customDateFrom.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      url = `${base}?rango=dias&dias=${diffDays}`;
+    } else {
+      let rango = 'today';
+      if (this.selectedDateRange === 'week') rango = 'week';
+      else if (this.selectedDateRange === 'month') rango = 'month';
+      url = `${base}?rango=${rango}`;
+    }
+    
+    this.http.get<any>(url, { headers }).subscribe({
+      next: (data) => {
+        this.alertasPersonalizadasData = data?.alertas || [];
+        this.alertasPersonalizadasFiltradas = [...this.alertasPersonalizadasData];
+        this.alertasPersonalizadasPaginadas = this.alertasPersonalizadasFiltradas.slice(0, this.alertPageSize);
+      },
+      error: () => {}
     });
   }
 
@@ -636,7 +725,6 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
     
     let url = base;
     if (this.customDateRange && this.customDateFrom && this.customDateTo) {
-      // Calcular días entre fechas
       const diffTime = Math.abs(this.customDateTo.getTime() - this.customDateFrom.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       url = `${base}?rango=dias&dias=${diffDays}`;
@@ -658,7 +746,6 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
     });
   }
 
-  // ---------- Filtros ----------
   onChangeSensor(): void {
     // Filtrar tarjetas de estado
     if (!this.selectedSensor) {
@@ -667,38 +754,54 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
       this.sensoresFiltrados = this.sensors.filter(s => s.name === this.selectedSensor);
     }
 
-    // Restaurar series, no vaciarlas (se ocultarán por plantilla)
-    this.pm25Data = [...this.pm25DataOriginal];
-    this.airQualityData = [...this.airQualityDataOriginal];
-    this.methaneData = [...this.methaneDataOriginal];
-
     // Filtrar alertas por sensor
     this.aplicarFiltrosAlertas();
 
-    // Ajustar carrusel para que el gráfico elegido aparezca primero
-    const map: any = { 'MQ-135': 'mq135', 'MQ-7': 'mq7', 'MQ-4': 'mq4' };
-    if (this.selectedSensor && map[this.selectedSensor]) {
+    // Ajustar carrusel
+    if (this.selectedSensor) {
+      const map: any = { 'MQ-135': 'mq135', 'MQ-7': 'mq7', 'MQ-4': 'mq4' };
       const key = map[this.selectedSensor];
-      const idx = this.chartDefs.findIndex(d => d.key === key);
-      if (idx >= 0) this.chartIndex = idx;
+      if (key) {
+        const idx = this.chartDefs.findIndex(d => d.key === key);
+        if (idx >= 0) {
+          this.chartIndex = idx;
+        }
+      }
+    } else {
+      this.chartIndex = 0;
     }
+    
+    // Forzar actualización de vista
+    this.cdr.detectChanges();
   }
 
+  // Mejorar shouldShowChart
   shouldShowChart(key: string): boolean {
-    if (!this.selectedSensor) return true;
-    if (this.selectedSensor === 'MQ-135') return key === 'mq135';
-    if (this.selectedSensor === 'MQ-7') return key === 'mq7';
-    if (this.selectedSensor === 'MQ-4') return key === 'mq4';
-    return true;
+    // Si no hay sensor seleccionado, mostrar todos
+    if (!this.selectedSensor) {
+      return true;
+    }
+    
+    // Si hay sensor seleccionado, solo mostrar el correspondiente
+    const map: any = { 'MQ-135': 'mq135', 'MQ-7': 'mq7', 'MQ-4': 'mq4' };
+    const selectedKey = map[this.selectedSensor];
+    
+    return key === selectedKey;
   }
 
   onChangeDateRange(): void {
-    // Desactivar rango personalizado si se selecciona un rango predefinido
-    this.customDateRange = false;
+    if (this.selectedDateRange === 'custom') {
+      this.customDateRange = true;
+      return;
+    }
     
-    // Mapear opciones de UI a rango
+    this.customDateRange = false;
+    this.customDateFrom = undefined;
+    this.customDateTo = undefined;
+    
     const hoy = new Date();
     const inicio = new Date(hoy);
+    
     switch (this.selectedDateRange) {
       case 'today':
         inicio.setHours(0,0,0,0);
@@ -707,11 +810,13 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
         break;
       case 'week':
         inicio.setDate(hoy.getDate() - 7);
+        inicio.setHours(0,0,0,0);
         this.filtroDesde = inicio;
         this.filtroHasta = hoy;
         break;
       case 'month':
         inicio.setDate(hoy.getDate() - 30);
+        inicio.setHours(0,0,0,0);
         this.filtroDesde = inicio;
         this.filtroHasta = hoy;
         break;
@@ -720,40 +825,48 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
         this.filtroHasta = undefined;
     }
     
-
-    // Recargar alertas desde backend usando el rango elegido
     const token = localStorage.getItem('token');
     if (token) {
       const headers = { 'Authorization': `Bearer ${token}` };
+      
+      // Calcular límite apropiado según el rango
+      let limit = 1000;
+      if (this.selectedDateRange === 'week') limit = 3000;
+      else if (this.selectedDateRange === 'month') limit = 10000;
+      
+      
+      // Cargar lecturas con límite apropiado
+      this.isLoading = true;
+      this.http.get<any>(`${environment.apiBaseUrl}/lecturas/admin?limit=${limit}`, { headers }).subscribe({
+        next: (data) => {
+          this.rawLecturas = {
+            mq135: data.mq135 || [],
+            mq7: data.mq7 || [],
+            mq4: data.mq4 || []
+          };
+          
+          // Recalcular series con los nuevos datos
+          this.recalcularSeriesPorRango();
+          
+          this.isLoading = false;
+        },
+        error: () => {
+          this.isLoading = false;
+        }
+      });
+      
+      // Recargar alertas con el nuevo rango
       this.cargarAlertasPorRango(headers);
       this.cargarAlertasPersonalizadasPorRango(headers);
-      // Actualizar analítica temporal (hoy/semana/mes)
-      const scope = this.selectedDateRange === 'week' ? 'week' : (this.selectedDateRange === 'month' ? 'month' : 'today');
-      this.http.get<any>(`${environment.apiBaseUrl}/reportes/analitica?scope=${scope}`, { headers }).subscribe({ next: (d)=> { this.dashboardData = { ...(this.dashboardData||{}), temporalTotals: d?.totales, temporalLabel: d?.label }; }, error: ()=>{} });
-    }
-
-    // Aplicar a series
-    const filtrarSerie = (serie: any[]) => {
-      if (!this.filtroDesde || !this.filtroHasta) return serie;
-      // Nuestras series son slots horarios sintéticos; mantenemos todas por ahora
-      return serie;
-    };
-    this.pm25Data = filtrarSerie(this.pm25DataOriginal);
-    this.airQualityData = filtrarSerie(this.airQualityDataOriginal);
-    this.methaneData = filtrarSerie(this.methaneDataOriginal);
-
-    // Aplicar a alertas
-    this.aplicarFiltrosAlertas();
-  }
-  
-  onChangeCustomDateRange(): void {
-    if (this.customDateFrom && this.customDateTo) {
-      this.customDateRange = true;
-      this.filtroDesde = new Date(this.customDateFrom);
-      this.filtroHasta = new Date(this.customDateTo);
       
-      // Recargar datos con el rango personalizado
-      this.recargarDatosPorRango();
+      // Actualizar analítica temporal
+      const scope = this.selectedDateRange === 'week' ? 'week' : (this.selectedDateRange === 'month' ? 'month' : 'today');
+      this.http.get<any>(`${environment.apiBaseUrl}/reportes/analitica?scope=${scope}`, { headers }).subscribe({
+        next: (d) => {
+          this.dashboardData = { ...(this.dashboardData || {}), temporalTotals: d?.totales, temporalLabel: d?.label };
+        },
+        error: () => {}
+      });
     }
   }
   
@@ -798,13 +911,76 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
         }, 
         error: ()=>{} 
       });
+      
+      // Calcular días entre fechas para determinar el límite
+      if (this.customDateRange && this.customDateFrom && this.customDateTo) {
+        const diffTime = Math.abs(this.customDateTo.getTime() - this.customDateFrom.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        let limit = 1000;
+        if (diffDays <= 7) limit = 2000;
+        else if (diffDays <= 30) limit = 5000;
+        else limit = 10000;
+        
+        this.http.get<any>(`${environment.apiBaseUrl}/lecturas/admin?limit=${limit}`, { headers }).subscribe({
+          next: (data) => {
+            // Actualizar lecturas crudas con más datos para el nuevo rango
+            this.rawLecturas = {
+              mq135: data.mq135 || [],
+              mq7: data.mq7 || [],
+              mq4: data.mq4 || []
+            };
+            // Recalcular series con el nuevo rango y los nuevos datos
+            this.recalcularSeriesPorRango();
+          },
+          error: () => {
+            // Si falla, intentar recalcular con los datos existentes
+            this.recalcularSeriesPorRango();
+          }
+        });
+      } else {
+        // Si no es rango personalizado, recalcular con datos existentes
+        this.recalcularSeriesPorRango();
+      }
+    } else {
+      // Si no hay token, solo recalcular con datos existentes
+      this.recalcularSeriesPorRango();
     }
-
-    // Recalcular series de gráficos con el nuevo rango
-    this.recalcularSeriesPorRango();
 
     // Aplicar a alertas
     this.aplicarFiltrosAlertas();
+    
+    // NO forzar detectChanges - Angular detectará los cambios automáticamente
+    // Forzar detectChanges causa que los gráficos desaparezcan
+  }
+  
+  onChangeCustomDateRange(): void {
+    // Solo procesar si ambas fechas están seleccionadas
+    if (!this.customDateFrom || !this.customDateTo) {
+      return;
+    }
+    
+    // Validar que la fecha "desde" sea anterior a "hasta"
+    if (this.customDateFrom > this.customDateTo) {
+      // Intercambiar fechas si están al revés
+      const temp = this.customDateFrom;
+      this.customDateFrom = this.customDateTo;
+      this.customDateTo = temp;
+    }
+    
+    // Activar rango personalizado
+    this.customDateRange = true;
+    
+    // Establecer fechas con horas correctas (inicio del día para desde, fin del día para hasta)
+    const desde = new Date(this.customDateFrom);
+    desde.setHours(0, 0, 0, 0);
+    this.filtroDesde = desde;
+    
+    const hasta = new Date(this.customDateTo);
+    hasta.setHours(23, 59, 59, 999);
+    this.filtroHasta = hasta;
+    
+    // Recargar datos con el rango personalizado
+    this.recargarDatosPorRango();
   }
 
   private cargarAlertasPorRango(headers: any): void {
@@ -830,8 +1006,9 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
         this.alertasData = data?.alertas || [];
         this.aplicarFiltrosAlertas();
         this.isLoadingAlerts = false;
-        // Recalcular series por rango para panel de sensores
-        this.recalcularSeriesPorRango();
+        // NO recalcular series aquí - ya se hace en onChangeDateRange o recargarDatosPorRango
+        // NO forzar detectChanges aquí para evitar que los gráficos desaparezcan durante el polling
+        // Solo actualizar los datos, Angular detectará los cambios automáticamente
       },
       error: () => { this.isLoadingAlerts = false; }
     });
@@ -871,13 +1048,8 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
       if (selectedSeverity) {
         ok = ok && (String(a.severidad).toLowerCase() === selectedSeverity);
       }
-      // Fecha (aplicar también en cliente por robustez)
-      if (this.filtroDesde && this.filtroHasta) {
-        const rawTs: any = (a as any).timestamp || (a as any).creado_en || (a as any).fecha || null;
-        const t = rawTs ? new Date(rawTs) : null;
-        if (!t) return false;
-        ok = ok && (t >= this.filtroDesde && t <= this.filtroHasta);
-      }
+      // NOTA: No filtrar por fecha aquí - el backend ya filtra correctamente por rango
+      // El filtro adicional en el cliente causaba problemas eliminando alertas válidas
       return ok;
     });
     
@@ -1093,21 +1265,26 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
   // Helpers para carrusel
   getDataByKey(key: string): any[] {
     switch (key) {
-      case 'mq135': return this.pm25Data;
-      case 'mq7': return this.airQualityData;
-      case 'mq4': return this.methaneData;
-      default: return this.pm25Data;
+      case 'mq135': return this.pm25Data || [];
+      case 'mq7': return this.airQualityData || [];
+      case 'mq4': return this.methaneData || [];
+      default: return this.pm25Data || [];
     }
   }
 
   getChartPointsByKey(key: string): string {
     const data = this.getSafeDataByKey(key);
     if (!data || data.length === 0) return '';
-    return data.map((point, index) => {
-      const x = this.getXPosition(index);
-      const y = this.getYPosition(point.value, data);
-      return `${x},${y}`;
-    }).join(' ');
+    try {
+      return data.map((point, index) => {
+        const x = this.getXPosition(index);
+        const y = this.getYPosition(point.value, data);
+        return `${x},${y}`;
+      }).join(' ');
+    } catch (e) {
+      console.error('Error generando puntos del gráfico:', e);
+      return '';
+    }
   }
 
   isFiniteNumber(value: any): boolean {
@@ -1115,7 +1292,64 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   getSafeDataByKey(key: string): any[] {
-    return (this.getDataByKey(key) || []).filter(p => this.isFiniteNumber(p?.value));
+    const data = this.getDataByKey(key);
+    if (!data || !Array.isArray(data)) return [];
+    return data.filter(p => p && this.isFiniteNumber(p?.value));
+  }
+
+  /**
+   * Obtiene estadísticas agregadas de los datos para mostrar debajo del gráfico
+   * Muestra máximo 5 datos: promedio, mínimo, máximo, primer valor, último valor
+   */
+  getLimitedDataByKey(key: string, maxPoints: number = 5): any[] {
+    const data = this.getSafeDataByKey(key);
+    if (!data || data.length === 0) return [];
+    
+    const values = data.map(p => Number(p.value)).filter(v => Number.isFinite(v));
+    if (values.length === 0) return [];
+    
+    const stats: any[] = [];
+    
+    // 1. Promedio
+    const promedio = values.reduce((acc, v) => acc + v, 0) / values.length;
+    stats.push({
+      time: 'Promedio',
+      value: Number(promedio.toFixed(2))
+    });
+    
+    // 2. Mínimo
+    const minimo = Math.min(...values);
+    const minIndex = values.indexOf(minimo);
+    stats.push({
+      time: data[minIndex]?.time || 'Mínimo',
+      value: Number(minimo.toFixed(2))
+    });
+    
+    // 3. Máximo
+    const maximo = Math.max(...values);
+    const maxIndex = values.indexOf(maximo);
+    stats.push({
+      time: data[maxIndex]?.time || 'Máximo',
+      value: Number(maximo.toFixed(2))
+    });
+    
+    // 4. Primer valor
+    if (data.length > 0) {
+      stats.push({
+        time: data[0].time || 'Inicio',
+        value: Number(values[0].toFixed(2))
+      });
+    }
+    
+    // 5. Último valor
+    if (data.length > 1) {
+      stats.push({
+        time: data[data.length - 1].time || 'Final',
+        value: Number(values[values.length - 1].toFixed(2))
+      });
+    }
+    
+    return stats.slice(0, maxPoints);
   }
 
   getVisibleCharts(): any[] {
@@ -1123,13 +1357,15 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
     if (this.selectedSensor) {
       const map: any = { 'MQ-135': 'mq135', 'MQ-7': 'mq7', 'MQ-4': 'mq4' };
       const key = map[this.selectedSensor];
-      const chosen = this.chartDefs.find(d => d.key === key);
-      return chosen ? [chosen] : [];
+      if (key) {
+        const chosen = this.chartDefs.find(d => d.key === key);
+        return chosen ? [chosen] : this.chartDefs.slice(0, 2); // Fallback si no encuentra
+      }
     }
     // Sin filtro: mostrar dos consecutivas
     const first = this.chartDefs[this.chartIndex % this.chartDefs.length];
     const second = this.chartDefs[(this.chartIndex + 1) % this.chartDefs.length];
-    return [first, second];
+    return [first, second].filter(c => c); // Filtrar undefined
   }
 
   nextCharts(): void {
@@ -1156,7 +1392,8 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
 
   // Cargar series reales desde backend admin y agrupar por hora (últimas 24h)
   private cargarSeriesReales(headers: any): void {
-    this.http.get<any>(`${environment.apiBaseUrl}/lecturas/admin?limit=1000`, { headers }).subscribe({
+    // Cargar más datos inicialmente para tener suficiente información para todos los rangos
+    this.http.get<any>(`${environment.apiBaseUrl}/lecturas/admin?limit=5000`, { headers }).subscribe({
       next: (data) => {
         // Guardar lecturas crudas para recalcular por rango
         this.rawLecturas = {
@@ -1186,103 +1423,168 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
     const ahora = new Date();
     let desde: Date;
     let hasta: Date;
+    let step = 4; // horas por defecto
+    
+    // Encontrar la fecha más reciente en los datos para asegurar que el rango la incluya
+    let fechaMasReciente = ahora;
+    let maxTime = ahora.getTime();
+    
+    // Revisar solo los primeros 100 items de cada sensor (los más recientes)
+    const arrays = [
+      (this.rawLecturas.mq135 || []).slice(0, 100),
+      (this.rawLecturas.mq7 || []).slice(0, 100),
+      (this.rawLecturas.mq4 || []).slice(0, 100)
+    ];
+    
+    for (const arr of arrays) {
+      for (const item of arr) {
+        if (item?.fecha_lectura) {
+          const fecha = new Date(item.fecha_lectura);
+          if (!isNaN(fecha.getTime())) {
+            const time = fecha.getTime();
+            if (time > maxTime) {
+              maxTime = time;
+              fechaMasReciente = fecha;
+            }
+          }
+        }
+      }
+    }
     
     if (this.customDateRange && this.customDateFrom && this.customDateTo) {
-      // Usar rango personalizado
       desde = new Date(this.customDateFrom);
+      desde.setHours(0, 0, 0, 0);
       hasta = new Date(this.customDateTo);
+      hasta.setHours(23, 59, 59, 999);
       
-      // Calcular días entre fechas para determinar el step
+      // Asegurar que hasta incluya la fecha más reciente de los datos
+      if (fechaMasReciente > hasta) {
+        hasta = new Date(fechaMasReciente);
+        hasta.setSeconds(59, 999);
+      }
+      
       const diffTime = Math.abs(hasta.getTime() - desde.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
-      // Ajustar step según el rango personalizado
-      let step = 4; // horas por punto por defecto
-      if (diffDays <= 1) step = 4;        // Menos de 1 día: 4 horas por punto
-      else if (diffDays <= 7) step = 3;   // 1-7 días: 3 horas por punto
-      else if (diffDays <= 30) step = 24; // 1-30 días: 1 punto por día
-      else step = 24 * 7;                 // Más de 30 días: 1 punto por semana
-      
-      this.construirSeriesConRango(desde, hasta, step);
+      if (diffDays <= 1) step = 4;
+      else if (diffDays <= 7) step = 3;
+      else if (diffDays <= 30) step = 24;
+      else step = 24 * 7;
     } else {
-      // Usar rangos predefinidos
-      hasta = ahora;
-      if (this.selectedDateRange === 'week') desde = new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000);
-      else if (this.selectedDateRange === 'month') desde = new Date(ahora.getTime() - 30 * 24 * 60 * 60 * 1000);
-      else desde = new Date(ahora.getTime() - 24 * 60 * 60 * 1000);
+      // Usar la fecha más reciente de los datos o ahora, lo que sea mayor
+      hasta = fechaMasReciente > ahora ? fechaMasReciente : ahora;
       
-      let step = 4; // horas por punto
-      if (this.selectedDateRange === 'week') step = 3;     // 8 puntos por día para mayor detalle
-      else if (this.selectedDateRange === 'month') step = 24; // 1 punto por día
-      
-      this.construirSeriesConRango(desde, hasta, step);
+      if (this.selectedDateRange === 'week') {
+        desde = new Date(hasta);
+        desde.setDate(desde.getDate() - 7);
+        desde.setHours(0, 0, 0, 0);
+        step = 6; // 4 puntos por día aprox
+      } else if (this.selectedDateRange === 'month') {
+        desde = new Date(hasta);
+        desde.setDate(desde.getDate() - 30);
+        desde.setHours(0, 0, 0, 0);
+        step = 24; // 1 punto por día
+      } else {
+        desde = new Date(hasta);
+        desde.setDate(desde.getDate() - 1);
+        desde.setHours(0, 0, 0, 0);
+        step = 4; // 6 puntos en 24h
+      }
     }
+    
+    this.construirSeriesConRango(desde, hasta, step);
   }
   
   private construirSeriesConRango(desde: Date, hasta: Date, stepHours: number): void {
-    const construirSerie = (items: any[], step: number) => {
+    const construirSerie = (items: any[], step: number, nombreSensor: string) => {
+      if (!items || items.length === 0) {
+        return [];
+      }
+      
       const filtrados = items.filter((i: any) => {
+        if (!i.fecha_lectura) return false;
         const fechaLectura = new Date(i.fecha_lectura);
+        if (isNaN(fechaLectura.getTime())) {
+          return false;
+        }
         return fechaLectura >= desde && fechaLectura <= hasta;
       });
       
-      const serie: { time: string, value: number }[] = [];
-      const totalHoras = Math.ceil((hasta.getTime() - desde.getTime()) / (60 * 60 * 1000));
+      if (filtrados.length === 0) {
+        return [];
+      }
       
-      for (let h = 0; h <= totalHoras; h += step) {
-        const t0 = new Date(desde.getTime() + h * 60 * 60 * 1000);
-        const t1 = new Date(Math.min(hasta.getTime(), t0.getTime() + step * 60 * 60 * 1000));
-        
-        const enVentana = filtrados.filter((r: any) => {
+      const serie: { time: string, value: number }[] = [];
+      
+      // Pre-calcular timestamps para evitar conversiones repetidas
+      const desdeTime = desde.getTime();
+      const hastaTime = hasta.getTime();
+      const stepMs = step * 60 * 60 * 1000;
+      
+      // Pre-procesar fechas de los filtrados para evitar conversiones repetidas
+      const datosConTimestamp = filtrados
+        .map((r: any) => {
+          if (!r.fecha_lectura) return null;
           const t = new Date(r.fecha_lectura);
-          return t >= t0 && t < t1;
+          if (isNaN(t.getTime())) return null;
+          return { timestamp: t.getTime(), valor: Number(r.valor) };
+        })
+        .filter((d: any) => d !== null && Number.isFinite(d.valor));
+      
+      let t0Time = desdeTime;
+      let ventanaCount = 0;
+      const maxVentanas = 1000; // Límite de seguridad para evitar loops infinitos
+      
+      while (t0Time <= hastaTime && ventanaCount < maxVentanas) {
+        const t1Time = Math.min(hastaTime, t0Time + stepMs);
+        const isLastPoint = t1Time >= hastaTime;
+        
+        // Filtrar datos en esta ventana
+        const enVentana = datosConTimestamp.filter((d: any) => {
+          return d.timestamp >= t0Time && (isLastPoint ? d.timestamp <= t1Time : d.timestamp < t1Time);
         });
         
-        if (enVentana.length === 0) continue; // saltar huecos sin lecturas
-        const avg = enVentana.reduce((acc: number, r: any) => acc + Number(r.valor), 0) / enVentana.length;
-        if (!Number.isFinite(avg) || Math.abs(avg) < 1e-6) continue; // saltar ceros/vacios
-        
-        // Formatear etiqueta según el rango
-        let label: string;
-        if (this.customDateRange) {
-          // Para rangos personalizados, mostrar fecha y hora
-          if (step >= 24) {
-            label = `${('0' + (t0.getMonth() + 1)).slice(-2)}/${('0' + t0.getDate()).slice(-2)}`;
-          } else {
-            label = `${('0' + (t0.getMonth() + 1)).slice(-2)}/${('0' + t0.getDate()).slice(-2)} ${('0' + t0.getHours()).slice(-2)}:00`;
-          }
-        } else {
-          // Para rangos predefinidos, usar formato original
-          if (this.selectedDateRange === 'today') {
-            label = `${('0' + t0.getHours()).slice(-2)}:00`;
-          } else {
-            label = `${('0' + (t0.getMonth() + 1)).slice(-2)}/${('0' + t0.getDate()).slice(-2)}`;
+        if (enVentana.length > 0) {
+          const avg = enVentana.reduce((acc: number, d: any) => acc + d.valor, 0) / enVentana.length;
+          if (Number.isFinite(avg) && Math.abs(avg) >= 1e-6) {
+            const t0 = new Date(t0Time);
+            let label: string;
+            if (this.customDateRange || step >= 24) {
+              label = `${('0' + (t0.getMonth() + 1)).slice(-2)}/${('0' + t0.getDate()).slice(-2)}`;
+            } else {
+              label = `${('0' + t0.getHours()).slice(-2)}:00`;
+            }
+            
+            serie.push({ time: label, value: Number(avg.toFixed(2)) });
           }
         }
         
-        serie.push({ time: label, value: Number(avg.toFixed(2)) });
+        // Avanzar a la siguiente ventana
+        t0Time = t1Time;
+        ventanaCount++;
       }
+      
       return serie;
     };
 
-    // Preservar datos existentes si hay datos nuevos, sino mantener los actuales
-    const newPm25Data = construirSerie(this.rawLecturas.mq135, stepHours);
-    const newAirQualityData = construirSerie(this.rawLecturas.mq7, stepHours);
-    const newMethaneData = construirSerie(this.rawLecturas.mq4, stepHours);
+    // Construir series
+    const newPm25Data = construirSerie(this.rawLecturas.mq135 || [], stepHours, 'MQ-135');
+    const newAirQualityData = construirSerie(this.rawLecturas.mq7 || [], stepHours, 'MQ-7');
+    const newMethaneData = construirSerie(this.rawLecturas.mq4 || [], stepHours, 'MQ-4');
 
-    // Solo actualizar si hay datos nuevos, sino mantener los existentes
-    if (newPm25Data.length > 0) {
-      this.pm25Data = newPm25Data;
-      this.pm25DataOriginal = [...this.pm25Data];
-    }
-    if (newAirQualityData.length > 0) {
-      this.airQualityData = newAirQualityData;
-      this.airQualityDataOriginal = [...this.airQualityData];
-    }
-    if (newMethaneData.length > 0) {
-      this.methaneData = newMethaneData;
-      this.methaneDataOriginal = [...this.methaneData];
-    }
+    this.pm25Data.length = 0;
+    this.pm25Data.push(...newPm25Data);
+    
+    this.airQualityData.length = 0;
+    this.airQualityData.push(...newAirQualityData);
+    
+    this.methaneData.length = 0;
+    this.methaneData.push(...newMethaneData);
+
+    // Guardar copias
+    this.pm25DataOriginal = [...this.pm25Data];
+    this.airQualityDataOriginal = [...this.airQualityData];
+    this.methaneDataOriginal = [...this.methaneData];
 
     // Actualizar títulos
     const rangoTxt = this.getTituloRango();
@@ -1291,14 +1593,6 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
       title: `${d.key === 'mq135' ? 'MQ-135 - Calidad del Aire' : d.key === 'mq7' ? 'MQ-7 - Monóxido de Carbono' : 'MQ-4 - Gas Metano'} - ${rangoTxt}`,
       subtitle: `${d.key === 'mq135' ? 'Calidad del Aire' : d.key === 'mq7' ? 'Monóxido de Carbono' : 'Gas Metano'} - ${rangoTxt}`
     }));
-
-    // Reaplicar filtro de sensor solo si hay un sensor seleccionado
-    // No llamar onChangeSensor aquí para evitar que se vacíen los datos
-    // El filtro se aplicará automáticamente cuando el usuario seleccione un sensor
-    // Usar setTimeout para evitar re-renderizado inmediato que puede causar desaparición
-    setTimeout(() => {
-      this.cdr.detectChanges();
-    }, 0);
   }
 
   // ---------- Helper para fechas ----------
@@ -1744,11 +2038,16 @@ export class AdminReportsComponent implements OnInit, OnDestroy, AfterViewInit {
     // Si no hay datos, retornar string vacío para evitar errores en SVG
     if (!data || data.length === 0) return '';
     
-    return data.map((point, index) => {
-      const x = this.getTemporalXPosition(index);
-      const y = this.getTemporalYPosition(point.value, sensorType);
-      return `${x},${y}`;
-    }).join(' ');
+    try {
+      return data.map((point, index) => {
+        const x = this.getTemporalXPosition(index);
+        const y = this.getTemporalYPosition(point.value, sensorType);
+        return `${x},${y}`;
+      }).join(' ');
+    } catch (e) {
+      console.error('Error generando puntos temporales:', e);
+      return '';
+    }
   }
 
   // Funciones de filtro para usuarios

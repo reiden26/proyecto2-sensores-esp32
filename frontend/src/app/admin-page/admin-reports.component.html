@@ -222,7 +222,7 @@
                       </svg>
                     </div>
                     <div class="data-points">
-                      <div *ngFor="let point of getSafeDataByKey(chart.key)" class="data-point">
+                      <div *ngFor="let point of getLimitedDataByKey(chart.key, 5)" class="data-point">
                         <span class="time">{{ point.time }}</span>
                         <span class="value">{{ point.value | number:'1.2-2' }} {{ chart.unit }}</span>
                       </div>

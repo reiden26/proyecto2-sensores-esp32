@@ -910,8 +910,12 @@ def obtener_analitica_temporal(
     db: Session = Depends(get_db)
 ):
     """Devuelve conteos de registros por rango (hoy/semana/mes) sumando las tres tablas de lecturas."""
-    from datetime import datetime, timedelta
-    ahora = datetime.now()
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func
+    
+    # Usar UTC para evitar problemas de timezone
+    ahora = datetime.now(timezone.utc) - timedelta(hours=5)
+    print(f"[BACKEND DEBUG] scope={scope}, ahora={ahora}")  # ← AGREGAR LOG
     if scope == "week":
         desde = ahora - timedelta(days=7)
         label = "Esta semana"
@@ -919,9 +923,13 @@ def obtener_analitica_temporal(
         desde = ahora - timedelta(days=30)
         label = "Este mes"
     else:
+        # Para "today", usar las últimas 24 horas en lugar de desde medianoche
+        # Esto evita problemas de timezone
         desde = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
         label = "Hoy"
 
+    # Usar func.date para comparar solo la fecha (ignorando hora) si es necesario
+    # Pero mejor usar >= desde directamente
     c135 = db.query(models.LecturaMQ135).filter(models.LecturaMQ135.creado_en >= desde).count()
     c4 = db.query(models.LecturaMQ4).filter(models.LecturaMQ4.creado_en >= desde).count()
     c7 = db.query(models.LecturaMQ7).filter(models.LecturaMQ7.creado_en >= desde).count()
